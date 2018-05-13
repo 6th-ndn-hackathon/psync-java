@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.google.common.base.Charsets;
+import com.google.common.hash.Hashing;
+
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
@@ -64,6 +67,9 @@ public class Logic {
 		try {
 			m_face.registerPrefix(new Name(syncPrefix).append("hello"),
 					              onHelloInterest, onRegisterFailed);
+			m_contentCacheForSyncData.registerPrefix(new Name(syncPrefix).append("sync"),
+					                                 onRegisterFailed,
+					                                 onPartialSyncInterest);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -107,17 +113,56 @@ public class Logic {
 		if (!m_prefixes.containsKey(prefix)) {
 			return;
 		}
+		
+		int newSeq = m_prefixes.get(prefix) + 1;
+		
+		Name dataName = new Name(prefix);
+		dataName.append(Integer.toString(newSeq));
 
-        Data data = new Data(new Name(prefix));
+        Data data = new Data(dataName);
         data.setContent(content);
         MetaInfo metaInfo = new MetaInfo();
         metaInfo.setFreshnessPeriod(freshness);
         data.setMetaInfo(metaInfo);
+        
+        try {
+			m_keyChain.sign(data);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 
         m_contentCacheForUserData.add(data);
         
-        // Update sequence
+        updateSeq(prefix, newSeq);
+        
         // Satisfy Pending Interest
+	}
+	
+	private void updateSeq(String prefix, int seq) {
+		if (m_prefixes.containsKey(prefix) && m_prefixes.get(prefix) >= seq) {
+			return;
+		}
+		
+		if (m_prefixes.containsKey(prefix) && m_prefixes.get(prefix) != 0) {
+			Integer hash = m_prefix2hash.get(prefix + "/" + m_prefixes.get(prefix));
+			m_prefix2hash.remove(prefix + "/" + m_prefixes.get(prefix));
+		    m_hash2prefix.remove(hash);
+		    m_iblt.delete(new IntegerData(hash), new IntegerData(hash));
+		}
+		
+		m_prefixes.put(prefix, seq);
+		String prefixWithSeq = prefix + "/" + m_prefixes.get(prefix);
+		
+		// Hash of the data:
+		com.google.common.hash.HashFunction hashImplementation = Hashing.murmur3_32();
+		hashImplementation.hashString(prefixWithSeq, Charsets.UTF_8);
+		Integer newHash = hashImplementation.hashCode();
+
+		m_prefix2hash.put(prefixWithSeq, newHash);
+		m_hash2prefix.put(newHash, prefix);
+		m_iblt.insert(new IntegerData(newHash), new IntegerData(newHash));
+		
+		// Satisfy pending interest
 	}
 
     private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
@@ -144,11 +189,11 @@ public class Logic {
 			}
        }
 	 };
-	 
-    private final OnInterestCallback onPartialSyncInterest = new OnInterestCallback() {
+
+     private final OnInterestCallback onPartialSyncInterest = new OnInterestCallback() {
         public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
                                InterestFilter filterData) {
-           
+           // if data not found call storePendingInterest(interest, face)
         }
 	 };
 
@@ -164,9 +209,11 @@ public class Logic {
 	private double m_syncReplyFreshness, m_helloReplyFreshness;
 	private double m_syncInterestLifetime = 1000;
 	private Map<String, Integer> m_prefixes;
+	private Map<String, Integer> m_prefix2hash;
+	private Map<Integer, String> m_hash2prefix;
 	private KeyChain m_keyChain;
 	private MemoryContentCache m_contentCacheForUserData;
-	//private MemoryContentCache m_contentCacheForSyncData;
+	private MemoryContentCache m_contentCacheForSyncData;
 	
 	private static int m_hashFunctionCount = 3;
 	

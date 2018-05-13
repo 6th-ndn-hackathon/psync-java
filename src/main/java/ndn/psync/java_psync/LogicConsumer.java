@@ -1,23 +1,20 @@
-package com.example.damian.partialsyncapp;
-
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
-import net.named_data.jndn.InterestFilter;
 import net.named_data.jndn.Name;
+import net.named_data.jndn.NetworkNack;
 import net.named_data.jndn.OnData;
-import net.named_data.jndn.OnInterestCallback;
-import net.named_data.jndn.OnRegisterFailed;
+import net.named_data.jndn.OnNetworkNack;
 import net.named_data.jndn.OnTimeout;
-import net.named_data.jndn.encoding.EncodingException;
-import net.named_data.jndn.security.KeyChain;
-import net.named_data.jndn.security.SecurityException;
-import net.named_data.jndn.util.Blob;
-import net.named_data.jndn.util.MemoryContentCache;
-import net.named_data.jndn.sync.ChronoSync2013;
-
 import java.util.*;
+
+import com.google.common.base.Charsets;
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
+
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 
 public class LogicConsumer {
 
@@ -27,19 +24,12 @@ public class LogicConsumer {
     // private UpdateCallback m_onUpdate;
     private int m_count;
     private double m_false_positive;
-    private boolean m_suball;
-    private Name m_iblt;
+    private Name m_ibltName;
     private Map <String, Integer> m_prefixes;
     private boolean m_helloSent;
     private Set<String> m_sl;
-    ArrayList<String> m_ns;
-    // private bloom_filter m_bf;
-    //private final PendingInterestId m_outstandingInterestId;
-    // private Scheduler m_scheduler;
-
-    // private boost::mt19937 m_randomGenerator;
-    // private boost::variate_generator<boost::mt19937&, boost::uniform_int<> > m_rangeUniformRandom;
-
+    BloomFilter<String> m_bloomFilter;
+    private long m_outstandingInterestId;
     public LogicConsumer(Name prefix,
                          Face face,
                          ReceiveHelloCallback onReceivedHelloData,
@@ -47,27 +37,17 @@ public class LogicConsumer {
                          int count,
                          double false_positive)
     {
-        m_syncPrefix = prefix;
+    	m_syncPrefix = prefix;
         m_face = face;
         m_onReceivedHelloData = onReceivedHelloData;
         // m_onUpdate = onUpdate;
         m_count = count;
         m_false_positive = false_positive;
-        m_suball = (false_positive == 0.001 && m_count == 1);
         m_helloSent = false;
         // m_scheduler
         // m_randomGenerator
         // m_rangeUniformRandom
-        /* bloom_parameters opt;
-           opt.false_positive_probability = m_false_positive;
-           opt.projected_element_count = m_count;
-           opt.compute_optimal_parameters();
-           m_bf = bloom_filter(opt);
-        */
-    }
-
-    public void stop() {
-        m_face.shutdown();
+       m_bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), m_count, m_false_positive);
     }
 
     public interface ReceiveHelloCallback {
@@ -82,48 +62,28 @@ public class LogicConsumer {
         helloInterest.setInterestLifetimeMilliseconds(4000);
         helloInterest.setMustBeFresh(true);
 
-        final Interest interest = new Interest(helloInterest);
+        System.out.println("Send hello interest " + helloInterest);
 
-        /*_LOG_DEBUG("Send Hello Interest " << helloInterest << " Nonce " << helloInterest.getNonce() <<
-             " mustbefresh: " << helloInterest.getMustBeFresh());*/
         try {
-            m_face.expressInterest(interest,
-                    onHelloDataCallback,
-                    onHelloTimeout);
-            //null);
-            // onNackForHello);
-                               /* bind(&LogicConsumer::onHelloData, this, _1, _2),
-                               bind(&LogicConsumer::onNackForHello, this, _1, _2),
-                               bind(&LogicConsumer::onHelloTimeout, this, _1));*/
+            m_face.expressInterest(helloInterest,
+                                   onHelloDataCallback,
+                                   onHelloTimeout,
+                                   onHelloNack);
         }
         catch(IOException e) {
             e.printStackTrace();
         }
     }
 
-    /*public interface OnHelloDataCallback {
-        public void onData(Interest interest, Data data);
-    }*/
-
-    /*public interface OnHelloTimeoutCallback {
-        public void onTimeout(Interest interest);
-    }*/
-
     public interface OnNackForHelloCallback {
         public void onNack();
     }
 
     private OnData onHelloDataCallback = new OnData() {
-        @Override
         public void onData(Interest interest, Data data) {
             Name helloDataName = data.getName();
 
-            // _LOG_DEBUG("On Hello Data " << helloDataName);
-
-            m_iblt = helloDataName.getSubName(helloDataName.size()-2, 2);
-            // _LOG_DEBUG("m_iblt: " << m_iblt);
-            /* String content = (reinterpret_cast<const char*>(data.getContent().value()),
-                        data.getContent().value_size()); */
+            m_ibltName = helloDataName.getSubName(helloDataName.size()-2, 2);
 
             String content = new String(data.getContent().getImmutableArray());
 
@@ -134,47 +94,58 @@ public class LogicConsumer {
     };
 
     private OnTimeout onHelloTimeout = new OnTimeout() {
-        @Override
         public void onTimeout(Interest interest) {
             System.out.println("Timeout for interest " + interest.getName().toString());
+            sendHelloInterest();
         }
     };
-
-    private OnNackForHelloCallback onNackForHello = new OnNackForHelloCallback() {
-        @Override
-        public void onNack() {
-            System.out.println("Nack");
-        }
+            
+    private OnNetworkNack onHelloNack = new OnNetworkNack() {
+		public void onNetworkNack(Interest interest, NetworkNack networkNack) {
+			System.out.println("Nack");
+		}
     };
 
-    /*public void sendSyncInterest() {
-        // Sync interest format for partial: /<sync-prefix>/sync/<BF>/<old-IBF>
-        // Sync interest format for full: /<sync-prefix>/sync/full/<old-IBF>?
-        // name last component is the IBF and content should be the prefix with the version numbers
-        assert(m_helloSent);
-        assert(!m_iblt.empty());
-        Name syncInterestName = m_syncPrefix;
+    public void sendSyncInterest() {
+    	// Sync interest format for partial: /<sync-prefix>/sync/<BF>/<old-IBF>
+    	Name syncInterestName = m_syncPrefix;
         syncInterestName.append("sync");
+        
         // Append subscription list
         appendBF(syncInterestName);
-        // Append IBF received in hello/sync data
-        syncInterestName.append(m_iblt);
-        Interest syncInterest(syncInterestName);
-        // Need 4000 in constant (and configurable by the user?)
-        syncInterest.setInterestLifetime(ndn::time::milliseconds(4000));
+        
+        syncInterestName.append(m_ibltName);
+        Interest syncInterest = new Interest(syncInterestName);
+        syncInterest.setInterestLifetimeMilliseconds(4000);
         syncInterest.setMustBeFresh(true);
-        /* _LOG_DEBUG("sendSyncInterest lifetime: " << syncInterest.getInterestLifetime()
-              << " nonce=" << syncInterest.getNonce());
-       // Remove last pending interest before sending a new one
-       if (m_outstandingInterestId != 0) {
-            m_face.removePendingInterest(m_outstandingInterestId);
-            m_outstandingInterestId = 0;
+        
+        System.out.println("Send sync interest " + syncInterest);
+
+        try {
+        	m_outstandingInterestId = m_face.expressInterest(syncInterest,
+				                                             onSyncDataCallback,
+				                                             onSyncTimeout,
+				                                             onSyncNack);
         }
-        m_outstandingInterestId = m_face.expressInterest(syncInterest,
-                            bind(&LogicConsumer::onSyncData, this, _1, _2),
-                            bind(&LogicConsumer::onNackForSync, this, _1, _2),
-                            bind(&LogicConsumer::onSyncTimeout, this, _1));
-    }*/
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public void appendBF(Name prefix) {
+    	prefix.append(Integer.toString(m_count));
+    	prefix.append(Integer.toString((int) m_false_positive*1000));
+
+    	ByteArrayOutputStream out = null;
+    	try {
+			m_bloomFilter.writeTo(out);
+			prefix.append(out.toByteArray());
+			prefix.append(Integer.toString(out.size()));
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    }
 
     boolean haveSentHello(){
         return m_helloSent;
@@ -187,53 +158,31 @@ public class LogicConsumer {
     public void addSL(String s) {
         m_prefixes.put(s, 0);
         m_sl.add(s);
-        // m_bf.insert(s);
+        m_bloomFilter.put(s);
     }
-
-    public ArrayList<String> getNS()
-    {
-        return m_ns;
-    }
-
-    /*public void appendBF(Name name) {
-        name.append("" + m_count);
-        name.append("" + (int)(m_false_positive*1000));
-        name.append((m_bf.getTableSize()).toString());
-        for(data : m_bf) {
-            name.append(data);
+    
+    private OnData onSyncDataCallback = new OnData() {
+        public void onData(Interest interest, Data data) {
+        	Name syncDataName = data.getName();
+        	m_ibltName = syncDataName.getSubName(syncDataName.size()-2, 2);
+        	
+        	System.out.println(data.getContent());
+        	sendSyncInterest();
         }
-    }*/
-
-    //public void onData(Interest interest, Data data, FetchDataCallback fdCallback) {
-    // Name dataName = data.getName();
-        /*_LOG_INFO("On Data " << dataName.getSubName(1, dataName.size()-2) << "/"
-             << dataName.get(dataName.size()-1).toNumber());*/
-    //fdCallback(data);
-    //}
-
-    /*public void onDataTimeout(Interest interest, int nRetries, FetchDataCallBack fdCallback) {
-        if (nRetries <= 0) {
-            return;
+    };
+    
+    private OnTimeout onSyncTimeout = new OnTimeout() {
+        public void onTimeout(Interest interest) {
+            System.out.println("Timeout for interest " + interest.getName().toString());
+            sendSyncInterest();
         }
-        // _LOG_INFO("Data timeout for " << interest);
-        Interest newNonceInterest = interest;
-        newNonceInterest.refreshNonce();
-        m_face.expressInterest(newNonceInterest,
-                         bind(&LogicConsumer::onData, this, _1, _2, fdCallback),
-                         bind(&LogicConsumer::onDataNack, this, _1, _2, nRetries - 1, fdCallback),
-                         bind(&LogicConsumer::onDataTimeout, this, _1, nRetries - 1, fdCallback));
-    }*/
-
-    // java's lp::Nack?
-    //public void onDataNack(Interest interest, const ndn::lp::Nack& nack, int nRetries,
-    //                      FetchDataCallBack& fdCallback) {
-        /*_LOG_INFO("received Nack with reason " << nack.getReason()
-             << " for interest " << interest << std::endl);*/
-    // Re-send after a while; Here is where you'll have to make a scheduler
-        /*ndn::time::steady_clock::Duration after = ndn::time::milliseconds(50);
-        m_scheduler.scheduleEvent(after, std::bind(&LogicConsumer::onDataTimeout, this, interest,
-                                             nRetries - 1, fdCallback));*/
-    //}
+    };
+            
+    private OnNetworkNack onSyncNack = new OnNetworkNack() {
+		public void onNetworkNack(Interest interest, NetworkNack networkNack) {
+			System.out.println("Nack");
+		}
+    };
 
     /*public void printSL() {
         String sl = "";
@@ -242,6 +191,5 @@ public class LogicConsumer {
         }
         //_LOG_INFO("Subscription List: " << sl);
     }*/
-
-    // private onReceiveHelloCallback
 }
+
