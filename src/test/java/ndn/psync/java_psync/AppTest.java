@@ -3,10 +3,7 @@ package ndn.psync.java_psync;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
-<<<<<<< HEAD
-=======
 import net.named_data.jndn.psync.LogicConsumer;
->>>>>>> a70e9f03cbf2acb74352def2c6908c31cde25e40
 
 /**
  * Unit test for simple App.

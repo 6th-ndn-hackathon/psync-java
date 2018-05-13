@@ -1,5 +1,6 @@
 package ndn.psync.java_psync;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -7,10 +8,12 @@ import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.InterestFilter;
+import net.named_data.jndn.MetaInfo;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.OnInterestCallback;
 import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
+import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.util.Blob;
 import net.named_data.jndn.util.MemoryContentCache;
 import se.rosenbaum.iblt.Cell;
@@ -51,16 +54,10 @@ public class Logic {
         }
 
 		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, m_hashFunctionCount));
-		
-		Name prefix = new Name("test");
-		appendIBLT(prefix);
-		System.out.println(prefix);
-		
-		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, 5));
 
 		m_prefixes = new HashMap<String, Integer>();
 
-		m_contentCacheForUserData = new MemoryContentCache(m_face);
+		m_contentCacheForUserData = new MemoryContentCache(m_face); // default cleanup period is 1 second
 		
 		addUserPrefix(userPrefix.toString());
 
@@ -84,8 +81,8 @@ public class Logic {
 			table[i+3] = (byte) integerData.getValue();
 			i++;
 		}
-		prefix.append(table);
 		prefix.append(Integer.toString(m_iblt.getCells().length));
+		prefix.append(table);
 	}
 	
 	public void addUserPrefix(String prefix) {
@@ -93,7 +90,34 @@ public class Logic {
 			m_prefixes.put(prefix, 0);
 		}
 		
-		//m_contentCacheForUserData.registerPrefix(new Name(prefix), onRegisterFailed);
+		try {
+			// Store the interest if no data yet - not sure if needed because this is for user data
+			//m_contentCacheForUserData.registerPrefix(new Name(prefix), onRegisterFailed, m_contentCacheForUserData.getStorePendingInterest());
+			m_contentCacheForUserData.registerPrefix(new Name(prefix), onRegisterFailed);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (SecurityException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+	
+	private void publishData(Blob content, double freshness, String prefix) {
+		if (!m_prefixes.containsKey(prefix)) {
+			return;
+		}
+
+        Data data = new Data(new Name(prefix));
+        data.setContent(content);
+        MetaInfo metaInfo = new MetaInfo();
+        metaInfo.setFreshnessPeriod(freshness);
+        data.setMetaInfo(metaInfo);
+
+        m_contentCacheForUserData.add(data);
+        
+        // Update sequence
+        // Satisfy Pending Interest
 	}
 
     private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
@@ -105,10 +129,13 @@ public class Logic {
                 content += prefix1 + "/" + m_prefixes.get(prefix1) + "\n";
             }
 
+    		appendIBLT(prefix);
+    		System.out.println(prefix);
             Data data = new Data(prefix);
-            // Append IBF
-            // data.getName().append(digest);
             data.setContent(new Blob(content));
+            MetaInfo metaInfo = new MetaInfo();
+            metaInfo.setFreshnessPeriod(m_helloReplyFreshness);
+            data.setMetaInfo(metaInfo);
             try {
 				m_keyChain.sign(data);
 				m_face.putData(data);
@@ -121,7 +148,7 @@ public class Logic {
     private final OnInterestCallback onPartialSyncInterest = new OnInterestCallback() {
         public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
                                InterestFilter filterData) {
-        	
+           
         }
 	 };
 
@@ -139,7 +166,7 @@ public class Logic {
 	private Map<String, Integer> m_prefixes;
 	private KeyChain m_keyChain;
 	private MemoryContentCache m_contentCacheForUserData;
-	private MemoryContentCache m_contentCacheForSyncData;
+	//private MemoryContentCache m_contentCacheForSyncData;
 	
 	private static int m_hashFunctionCount = 3;
 	
