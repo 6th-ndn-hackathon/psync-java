@@ -33,15 +33,28 @@ public class Logic {
 		m_helloReplyFreshness = helloReplyFreshness;
 		m_keyChain = keyChain;
 		
-		// m_expectedNumEntries = (int) (m_expectedNumEntries*1.5);
+		m_expectedNumEntries = (int) (m_expectedNumEntries*1.5);
+
+		// Make number of cells (buckets) a multiple of hash function count (N_Hash)
+		while (true) {
+	        if (m_expectedNumEntries % m_hashFunctionCount == 0) {
+	        	break;
+	        } else {
+	        	++m_expectedNumEntries;
+	        }
+		}
 		
 		Cell[] cells = new Cell[m_expectedNumEntries];
         HashFunction<IntegerData, IntegerData> hashFunction = new IntegerDataHashFunction();
         for (int i = 0; i < m_expectedNumEntries; i++) {
             cells[i] = new Cell(new IntegerData(0), new IntegerData(0), new IntegerData(0), hashFunction, 0);
         }
+
+		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, m_hashFunctionCount));
 		
-		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, 5));
+		Name prefix = new Name("test");
+		appendIBLT(prefix);
+		System.out.println(prefix);
 
 		m_prefixes = new HashMap<String, Integer>();
 
@@ -58,7 +71,19 @@ public class Logic {
 	}
 
 	public void appendIBLT (Name prefix) {
-	  System.out.println(m_iblt.toString());
+		byte[] table = new byte[m_iblt.getCells().length*4];
+
+		int i = 0;
+		for (Cell<IntegerData, IntegerData> cell : m_iblt.getCells()) {
+			table[i] = (byte) cell.getCount();
+			table[i+1] = (byte) cell.getKeySum().getValue();
+			table[i+2] = (byte) cell.getValueSum().getValue();
+			IntegerData integerData = (IntegerData) cell.getHashKeySum();
+			table[i+3] = (byte) integerData.getValue();
+			i++;
+		}
+		prefix.append(table);
+		prefix.append(Integer.toString(m_iblt.getCells().length));
 	}
 	
 	public void addUserPrefix(String prefix) {
@@ -113,6 +138,8 @@ public class Logic {
 	private KeyChain m_keyChain;
 	private MemoryContentCache m_contentCacheForUserData;
 	private MemoryContentCache m_contentCacheForSyncData;
+	
+	private static int m_hashFunctionCount = 3;
 	
 	private IBLT<IntegerData, IntegerData> m_iblt;
 }
