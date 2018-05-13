@@ -43,7 +43,7 @@ public class Logic {
 	        	++m_expectedNumEntries;
 	        }
 		}
-		
+		// m_expectedNumEntries = (int) (m_expectedNumEntries*1.5);
 		Cell[] cells = new Cell[m_expectedNumEntries];
         HashFunction<IntegerData, IntegerData> hashFunction = new IntegerDataHashFunction();
         for (int i = 0; i < m_expectedNumEntries; i++) {
@@ -55,6 +55,8 @@ public class Logic {
 		Name prefix = new Name("test");
 		appendIBLT(prefix);
 		System.out.println(prefix);
+		
+		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, 5));
 
 		m_prefixes = new HashMap<String, Integer>();
 

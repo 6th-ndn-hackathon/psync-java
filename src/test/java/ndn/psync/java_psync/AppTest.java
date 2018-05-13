@@ -3,6 +3,10 @@ package ndn.psync.java_psync;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
+<<<<<<< HEAD
+=======
+import net.named_data.jndn.psync.LogicConsumer;
+>>>>>>> a70e9f03cbf2acb74352def2c6908c31cde25e40
 
 /**
  * Unit test for simple App.
@@ -34,5 +38,29 @@ public class AppTest
     public void testApp()
     {
         assertTrue( true );
+    }
+    
+    public void testHello()
+    {
+        // send a hello
+        Name syncName = new Name("/sync/stuff");
+        Name defaultCertificateName;
+            try {
+                defaultCertificateName = keyChain.createIdentityAndCertificate(testIdName);
+                keyChain.getIdentityManager().setDefaultIdentity(testIdName);
+            } 
+            catch (SecurityException e2) {
+                defaultCertificateName = new Name("/bogus/certificate/name");
+            }
+            face.setCommandSigningInfo(keyChain, defaultCertificateName);
+            try {
+                face.processEvents();
+            }
+            catch (IOException | EncodingException e) {
+                e.printStackTrace();
+            }
+        LogicConsumer consumer = new LogicConsumer(syncName, face, 4, 0.001);
+        consumer.sendHelloInterest();
+        face.processEvents();
     }
 }
