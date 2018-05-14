@@ -4,7 +4,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import net.named_data.jndn.Face;
+import net.named_data.jndn.Interest;
+import net.named_data.jndn.InterestFilter;
 import net.named_data.jndn.Name;
+import net.named_data.jndn.Name.Component;
+import net.named_data.jndn.OnInterestCallback;
+import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.KeyChain.Error;
 import net.named_data.jndn.security.SafeBag;
@@ -127,6 +132,12 @@ public class TestLogic {
 			});
 
 	public static void main(String[] args) {
+	    final OnRegisterFailed onRegisterFailed = new OnRegisterFailed() {
+			public void onRegisterFailed(Name arg0) {
+				System.out.println("Register failed for: " + arg0);
+			}
+		 };
+
 		Face face = new Face();
 
 		KeyChain keyChain = null;
@@ -142,12 +153,37 @@ public class TestLogic {
 			e1.printStackTrace();
 		}
 
-		Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
+		final Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
 		logic.addUserPrefix("/testData1010");
 		logic.addUserPrefix("/testData2020");
 		logic.addUserPrefix("/testData3030");
 		logic.addUserPrefix("/testData4040");
 		logic.addUserPrefix("/testData5050");
+		
+		final OnInterestCallback onHelloInterest = new OnInterestCallback() {
+	        public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
+	                               InterestFilter filterData) {
+	        	System.out.println("Received interest: " + interest.getName());
+	        	// /localhost/psync/publish/testData1010/<content>
+	        	// /localhost/psync/publish/<userPrefix>/<content>
+	        	Name interestName = interest.getName();
+	        	Name secondLast = new Name("").append(interestName.get(interestName.size()-4));
+	        	Name last = new Name("").append(interestName.get(interestName.size()-3));
+	        	
+	        	System.out.println(secondLast);
+	        	System.out.println(last);
+	        	
+	        	Blob blob = new Blob(last.toUri().getBytes());
+	        	logic.publishData(blob, 1000, secondLast.toString());
+	        }
+	    };
+		
+		try {
+			face.registerPrefix(new Name("/localhost/psync/publish"),
+					            onHelloInterest, onRegisterFailed);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 		
 		while (true) {
 	        try {

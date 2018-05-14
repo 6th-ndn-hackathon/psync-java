@@ -116,7 +116,7 @@ public class Logic {
 		}
 	}
 	
-	private void publishData(Blob content, double freshness, String prefix) {
+	void publishData(Blob content, double freshness, String prefix) {
 		if (!m_prefixes.containsKey(prefix)) {
 			return;
 		}
@@ -357,8 +357,8 @@ public class Logic {
 	private double m_syncReplyFreshness, m_helloReplyFreshness;
 	private double m_syncInterestLifetime = 1000;
 	private Map<String, Integer> m_prefixes;
-	private Map<String, Integer> m_prefix2hash;
-	private Map<Integer, String> m_hash2prefix;
+	private Map<String, Integer> m_prefix2hash = new HashMap<String, Integer>();
+	private Map<Integer, String> m_hash2prefix = new HashMap<Integer, String>();
 	private KeyChain m_keyChain;
 	private MemoryContentCache m_contentCacheForUserData;
 	private MemoryContentCache m_contentCacheForSyncData;
