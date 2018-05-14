@@ -142,7 +142,12 @@ public class TestLogic {
 			e1.printStackTrace();
 		}
 
-		Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData"), 1000, 1000, keyChain);
+		Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
+		logic.addUserPrefix("/testData1010");
+		logic.addUserPrefix("/testData2020");
+		logic.addUserPrefix("/testData3030");
+		logic.addUserPrefix("/testData4040");
+		logic.addUserPrefix("/testData5050");
 		
 		while (true) {
 	        try {

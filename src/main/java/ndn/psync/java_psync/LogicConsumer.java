@@ -21,6 +21,7 @@ public class LogicConsumer {
     private Name m_syncPrefix;
     private Face m_face;
     private ReceiveHelloCallback m_onReceivedHelloData;
+    private ReceiveSyncCallback m_onReceivedSyncData;
     // private UpdateCallback m_onUpdate;
     private int m_count;
     private double m_false_positive;
@@ -33,25 +34,26 @@ public class LogicConsumer {
     public LogicConsumer(Name prefix,
                          Face face,
                          ReceiveHelloCallback onReceivedHelloData,
-                         //UpdateCallback onUpdate,
+                         ReceiveSyncCallback onReceivedSyncData,
                          int count,
                          double false_positive)
     {
     	m_syncPrefix = prefix;
         m_face = face;
         m_onReceivedHelloData = onReceivedHelloData;
-        // m_onUpdate = onUpdate;
+        m_onReceivedSyncData = onReceivedSyncData;
         m_count = count;
         m_false_positive = false_positive;
         m_helloSent = false;
-        // m_scheduler
-        // m_randomGenerator
-        // m_rangeUniformRandom
        m_bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), m_count, m_false_positive);
     }
 
     public interface ReceiveHelloCallback {
         void onReceivedHelloData(String content);
+    }
+    
+    public interface ReceiveSyncCallback {
+        void onReceivedSyncData(String content);
     }
 
     public void sendHelloInterest() {
@@ -118,7 +120,7 @@ public class LogicConsumer {
         Interest syncInterest = new Interest(syncInterestName);
         syncInterest.setInterestLifetimeMilliseconds(4000);
         syncInterest.setMustBeFresh(true);
-        
+
         System.out.println("Send sync interest " + syncInterest);
 
         try {
@@ -166,7 +168,19 @@ public class LogicConsumer {
         	Name syncDataName = data.getName();
         	m_ibltName = syncDataName.getSubName(syncDataName.size()-2, 2);
         	
-        	System.out.println(data.getContent());
+        	String newContent;
+        	String content = new String(data.getContent().getImmutableArray());
+        	String[] csplit = content.split("\n");
+        	
+        	for (String t : csplit) {
+        		
+        		for (String key : m_prefixes.keySet()){
+                    if (t.split("/")[0] == key && Integer.parseInt(t.split("/")[1]) > m_prefixes.get(key)) {
+                    	newContent += t.split("/")[0] + "/" + t.split("/")[1] + "\n";
+                    }
+                }
+        	}
+        	m_onReceivedSyncData.onReceivedSyncData(newContent);
         	sendSyncInterest();
         }
     };
@@ -183,13 +197,5 @@ public class LogicConsumer {
 			System.out.println("Nack");
 		}
     };
-
-    /*public void printSL() {
-        String sl = "";
-        for (String s : m_sl) {
-            sl += s + " ";
-        }
-        //_LOG_INFO("Subscription List: " << sl);
-    }*/
 }
 

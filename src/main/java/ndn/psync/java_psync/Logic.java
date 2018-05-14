@@ -1,10 +1,14 @@
 package ndn.psync.java_psync;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
 import com.google.common.base.Charsets;
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
 import com.google.common.hash.Hashing;
 
 import net.named_data.jndn.Data;
@@ -13,12 +17,14 @@ import net.named_data.jndn.Interest;
 import net.named_data.jndn.InterestFilter;
 import net.named_data.jndn.MetaInfo;
 import net.named_data.jndn.Name;
+import net.named_data.jndn.Name.Component;
 import net.named_data.jndn.OnInterestCallback;
 import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.util.Blob;
 import net.named_data.jndn.util.MemoryContentCache;
+import net.named_data.jndn.util.MemoryContentCache.PendingInterest;
 import se.rosenbaum.iblt.Cell;
 import se.rosenbaum.iblt.IBLT;
 import se.rosenbaum.iblt.data.IntegerData;
@@ -53,7 +59,7 @@ public class Logic {
 		Cell[] cells = new Cell[m_expectedNumEntries];
         HashFunction<IntegerData, IntegerData> hashFunction = new IntegerDataHashFunction();
         for (int i = 0; i < m_expectedNumEntries; i++) {
-            cells[i] = new Cell(new IntegerData(0), new IntegerData(0), new IntegerData(0), hashFunction, 0);
+            cells[i] = new Cell<IntegerData, IntegerData>(new IntegerData(0), new IntegerData(0), new IntegerData(0), hashFunction, 0);
         }
 
 		m_iblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, m_hashFunctionCount));
@@ -61,6 +67,7 @@ public class Logic {
 		m_prefixes = new HashMap<String, Integer>();
 
 		m_contentCacheForUserData = new MemoryContentCache(m_face); // default cleanup period is 1 second
+		m_contentCacheForSyncData = new MemoryContentCache(m_face);
 		
 		addUserPrefix(userPrefix.toString());
 
@@ -134,8 +141,6 @@ public class Logic {
         m_contentCacheForUserData.add(data);
         
         updateSeq(prefix, newSeq);
-        
-        // Satisfy Pending Interest
 	}
 	
 	private void updateSeq(String prefix, int seq) {
@@ -163,6 +168,66 @@ public class Logic {
 		m_iblt.insert(new IntegerData(newHash), new IntegerData(newHash));
 		
 		// Satisfy pending interest
+		satisfyPendingSyncInterests(prefix);
+	}
+	
+	private void satisfyPendingSyncInterests(String prefix) {
+		for (PendingInterest interest: m_contentCacheForSyncData.getPendingInterestTable()) {
+			Name interestName = interest.getInterest().getName();
+			Component bfName = interestName.get(interestName.size()-3);
+        	Component ibltName = interestName.get(interestName.size()-1);
+        	ByteArrayInputStream in = null;
+        	try {
+				in.read(bfName.getValue().getImmutableArray());
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+        	int count = (int) interestName.get(interestName.size()-6).toNumber();
+        	double false_positive = interestName.get(interestName.size()-5).toNumber() / 1000;
+
+        	BloomFilter<String> bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), count, false_positive);
+        	try {
+				bloomFilter.readFrom(in, Funnels.stringFunnel(Charsets.UTF_8));
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        	
+        	Name syncP = new Name("");
+        	appendIBLT(syncP);
+        	
+        	Name otherIBLT = new Name("");
+        	otherIBLT.append(ibltName);
+        	
+        	String content = "";
+        	// IBF is different
+        	if (syncP != otherIBLT) {
+            	if (bloomFilter.mightContain(prefix)) {
+            		content += prefix + "/" + m_prefixes.get(prefix) + "\n";
+            	}
+        	}
+        	else { // IBF is same
+        		continue;
+        	}
+        	
+    		appendIBLT(interestName);
+            Data data = new Data(interestName);
+            data.setContent(new Blob(content));
+            MetaInfo metaInfo = new MetaInfo();
+            metaInfo.setFreshnessPeriod(m_syncReplyFreshness);
+            data.setMetaInfo(metaInfo);
+            try {
+				m_keyChain.sign(data);
+				m_contentCacheForSyncData.add(data);
+            	System.out.println("Sent Sync data " + data);
+			} catch (Exception e) {
+				System.out.println("Error!");
+				e.printStackTrace();
+			}
+
+		}
 	}
 
     private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
@@ -184,7 +249,9 @@ public class Logic {
             try {
 				m_keyChain.sign(data);
 				m_face.putData(data);
+            	System.out.println("Sent Hello data " + data);
 			} catch (Exception e) {
+				System.out.println("Error!");
 				e.printStackTrace();
 			}
        }
@@ -193,7 +260,88 @@ public class Logic {
      private final OnInterestCallback onPartialSyncInterest = new OnInterestCallback() {
         public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
                                InterestFilter filterData) {
-           // if data not found call storePendingInterest(interest, face)
+        	System.out.println("Received sync interest: " + interest);
+        	
+        	Name interestName = interest.getName();
+        	int ibfSize = (int) interestName.get(interestName.size()-2).toNumber();
+        	Component ibltName = interestName.get(interestName.size()-1);
+        	
+        	int bfSize = (int) interestName.get(interestName.size()-4).toNumber();
+        	Component bfName = interestName.get(interestName.size()-3);
+        	ByteArrayInputStream in = null;
+        	try {
+				in.read(bfName.getValue().getImmutableArray());
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+        	int count = (int) interestName.get(interestName.size()-6).toNumber();
+        	double false_positive = interestName.get(interestName.size()-5).toNumber() / 1000;
+
+        	BloomFilter<String> bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), count, false_positive);
+        	try {
+				bloomFilter.readFrom(in, Funnels.stringFunnel(Charsets.UTF_8));
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        	
+        	Name syncP = new Name("");
+        	appendIBLT(syncP);
+        	
+        	Name otherIBLT = new Name("");
+        	otherIBLT.append(ibltName);
+        	
+        	String content = "";
+        	// IBF is different
+        	if (syncP != otherIBLT) {
+                for (String prefix1 : m_prefixes.keySet()) {
+                	if (bloomFilter.mightContain(prefix1)) {
+                		content += prefix1 + "/" + m_prefixes.get(prefix1) + "\n";
+                	}
+                }
+        	}
+        	else { // IBF is same
+        		m_contentCacheForSyncData.storePendingInterest(interest, face);
+        	}
+        	
+        	// append IBF to interestName
+    		appendIBLT(interestName);
+            Data data = new Data(interestName);
+            data.setContent(new Blob(content));
+            MetaInfo metaInfo = new MetaInfo();
+            metaInfo.setFreshnessPeriod(m_syncReplyFreshness);
+            data.setMetaInfo(metaInfo);
+            try {
+				m_keyChain.sign(data);
+				m_face.putData(data);
+            	System.out.println("Sent Sync data " + data);
+			} catch (Exception e) {
+				System.out.println("Error!");
+				e.printStackTrace();
+			}
+
+    		/*Cell[] cells = new Cell[m_expectedNumEntries];
+            HashFunction<IntegerData, IntegerData> hashFunction = new IntegerDataHashFunction();
+            for (int i = 0; i < m_expectedNumEntries; i++) {
+                cells[i] = new Cell<IntegerData, IntegerData>(new IntegerData(0), new IntegerData(0), new IntegerData(0), hashFunction, 0);
+            }
+
+        	IBLT<IntegerData, IntegerData> otherIblt = new IBLT<IntegerData, IntegerData>(cells, new IntegerDataSubtablesHashFunctions(m_expectedNumEntries, m_hashFunctionCount));;
+        	byte[] table = ibltName.getValue().getImmutableArray();
+
+        	int i = 0;
+        	for (byte t : table) {
+        		int count = table[i];
+        		int keySum = table[i+1];
+        		int valueSum = table[i+2];
+        		int hashKeySum = table[i+3];
+        		otherIblt.insert(new IntegerData(keySum), new IntegerData(valueSum));
+        		i++;
+        	}*/
+        	
+        	// if data not found call storePendingInterest(interest, face)
         }
 	 };
 
