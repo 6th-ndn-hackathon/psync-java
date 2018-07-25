@@ -34,7 +34,7 @@ import se.rosenbaum.iblt.hash.IntegerDataHashFunction;
 import se.rosenbaum.iblt.hash.IntegerDataSubtablesHashFunctions;
 
 public class Logic {
-	
+
 	public Logic(int expectedNumEntries, Face face, Name syncPrefix, Name userPrefix,
 	             double syncReplyFreshness, double helloReplyFreshness, KeyChain keyChain) //UpdateCallback onUpdateCallBack)
 	{
@@ -186,8 +186,9 @@ public class Logic {
 
         	int count = (int) interestName.get(interestName.size()-6).toNumber();
         	double false_positive = interestName.get(interestName.size()-5).toNumber() / 1000;
-
+        	
         	BloomFilter<String> bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), count, false_positive);
+
         	try {
 				bloomFilter.readFrom(in, Funnels.stringFunnel(Charsets.UTF_8));
 			} catch (IOException e) {
@@ -286,7 +287,7 @@ public class Logic {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-        	
+
         	Name syncP = new Name("");
         	appendIBLT(syncP);
         	
