@@ -14,12 +14,8 @@ data before sending the data.
 
 ### IBF:
 
-    https://github.com/kallerosenbaum/ibltj
-
-Install the ibltj as:
-
-    mvn package
-    mvn install:install-file -Dfile=target/iblt-1.0-SNAPSHOT.jar -DgroupId=se.rosenbaum -DartifactId=iblt -Dversion=1.0-SNAPSHOT -Dpackaging=jar
+Ported version of C++:
+    https://github.com/gavinandresen/IBLT_Cplusplus
 
 ### Bloom Filter
 

@@ -6,12 +6,14 @@ import java.util.Map;
 
 import ndn.psync.java_psync.detail.HashTableEntry;
 import ndn.psync.java_psync.detail.IBLT;
+import ndn.psync.java_psync.detail.Util;
 import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.MetaInfo;
 import net.named_data.jndn.Name;
+import net.named_data.jndn.Name.Component;
 import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.SecurityException;
@@ -25,8 +27,8 @@ public abstract class ProducerBase {
 	@SuppressWarnings("unused")
 	private double m_syncReplyFreshness, m_helloReplyFreshness;
 	private Map<Name, Long> m_prefixes;
-	private Map<Name, Integer> m_prefix2hash = new HashMap<Name, Integer>();
-	private Map<Integer, Name> m_hash2prefix = new HashMap<Integer, Name>();
+	private Map<Name, Long> m_prefix2hash = new HashMap<Name, Long>();
+	private Map<Long, Name> m_hash2prefix = new HashMap<Long, Name>();
 	private KeyChain m_keyChain;
 
 	private IBLT m_iblt;
@@ -63,9 +65,9 @@ public abstract class ProducerBase {
 		if (seqNo != null) {
 			m_prefixes.remove(prefix);
 			Name prefixWithSeq = new Name(prefix);
-			prefixWithSeq.appendSequenceNumber(seqNo);
+			prefixWithSeq.append(Component.fromNumber(seqNo));
 
-			Integer hash = m_prefix2hash.get(prefixWithSeq);
+			Long hash = m_prefix2hash.get(prefixWithSeq);
 			if (hash != null) {
 				m_prefix2hash.remove(prefixWithSeq);
 				m_hash2prefix.remove(hash);
@@ -89,8 +91,8 @@ public abstract class ProducerBase {
 
 		if (oldSeq != 0) {
 			Name prefixWithSeq = new Name(prefix);
-			prefixWithSeq.appendSequenceNumber(oldSeq);
-		    Integer hash = m_prefix2hash.get(prefixWithSeq);
+			prefixWithSeq.append(Component.fromNumber(oldSeq));
+		    Long hash = m_prefix2hash.get(prefixWithSeq);
 		    if (hash != null) {
 		      m_prefix2hash.remove(prefixWithSeq);
 		      m_hash2prefix.remove(hash);
@@ -100,8 +102,8 @@ public abstract class ProducerBase {
 
 		m_prefixes.put(prefix, seq);
 		Name prefixWithSeq = new Name(prefix);
-		prefixWithSeq.appendSequenceNumber(seq);
-		int newHash = HashTableEntry.murmurHash3(HashTableEntry.N_HASHCHECK, prefixWithSeq.toUri());
+		prefixWithSeq.append(Component.fromNumber(seq));
+		long newHash = Util.murmurHash3(HashTableEntry.N_HASHCHECK, prefixWithSeq.toUri());
 		m_prefix2hash.put(prefixWithSeq, newHash);
 		m_hash2prefix.put(newHash, prefix);
 		m_iblt.insert(newHash); 

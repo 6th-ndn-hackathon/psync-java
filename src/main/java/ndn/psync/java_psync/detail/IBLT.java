@@ -1,5 +1,6 @@
 package ndn.psync.java_psync.detail;
 
+import java.nio.ByteBuffer;
 import java.util.Set;
 
 import com.google.common.hash.Hashing;
@@ -22,43 +23,51 @@ public class IBLT {
   	        nEntries += (N_HASH - remainder);
 	    }
         m_hashTable = new HashTableEntry[nEntries];
+        
+        for (int i = 0; i < m_hashTable.length; i++) {
+        	m_hashTable[i] = new HashTableEntry();
+        }
 	}
 	
-	public
-	IBLT(int expectedNumEntries, int[] values)
+	public HashTableEntry []
+	getHashTable()
 	{
-	  assert 3 * m_hashTable.length == values.length;
-
-	  for (int i = 0; i < m_hashTable.length; i++) {
-	    HashTableEntry entry = m_hashTable[i];
-	    if (values[i * 3] != 0) {
-	      entry.count = values[i * 3];
-	      entry.keySum = values[(i * 3) + 1];
-	      entry.keyCheck = values[(i * 3) + 2];
-	    }
-	  }
+		return m_hashTable;
 	}
 	
-	public
-	IBLT(int expectedNumEntries, Component ibltName)
+	public void
+	initialize(Component ibltName) throws Exception
 	{
-		this(expectedNumEntries, extractValueFromName(ibltName));
+		long [] values = extractValueFromName(ibltName);
+		if (3 * m_hashTable.length != values.length) {
+			throw new Exception("Received IBLT cannot be decoded!");
+		}
+		
+		for (int i = 0; i < m_hashTable.length; i++) {
+		    if (values[i * 3] != 0) {
+		    	m_hashTable[i].count = (int) values[i * 3];
+		    	m_hashTable[i].keySum = values[(i * 3) + 1];
+		    	m_hashTable[i].keyCheck = values[(i * 3) + 2];
+		    }
+		}
 	}
 	
-	private static int[] extractValueFromName(Component ibltName)
+	private static long[] extractValueFromName(Component ibltName)
 	{
-		byte[] ibltValues = ibltName.getValue().buf().array();
+		ByteBuffer buffer = ByteBuffer.allocate(ibltName.getValue().buf().capacity());
+		buffer.put(ibltName.getValue().buf());
+		byte[] ibltValues = buffer.array();
 		
 		int n = ibltValues.length / 4;
 
-		int [] values = new int[n];
+		long [] values = new long[n];
 		
 		for (int i = 0; i < 4 * n; i += 4) {
-		    int t = (ibltValues[i + 3] << 24) +
-		            (ibltValues[i + 2] << 16) +
-		            (ibltValues[i + 1] << 8)  +
-		            ibltValues[i];
-		    values[i / 4] = t;
+		    long t = ((0xFFL & ibltValues[i + 3]) << 24) +
+		             ((0xFFL & ibltValues[i + 2]) << 16) +
+		             ((0xFFL & ibltValues[i + 1]) << 8)  +
+		             (0xFFL & ibltValues[i]);
+		    values[i / 4] = Integer.toUnsignedLong((int) t);
 		}
 	
 		return values;
@@ -66,34 +75,34 @@ public class IBLT {
 	
 	@SuppressWarnings("unused")
 	private void
-	update(int plusOrMinus, int key)
+	update(int plusOrMinus, long key)
 	{
 	  int bucketsPerHash = m_hashTable.length / N_HASH;
 
 	  for (int i = 0; i < N_HASH; i++) {
 	    int startEntry = i * bucketsPerHash;
-	    int h = HashTableEntry.murmurHash3(i, key);
-	    HashTableEntry entry = m_hashTable[startEntry + (h % bucketsPerHash)];
+	    long h = Util.murmurHash3(i, (int) key);
+	    HashTableEntry entry = m_hashTable[startEntry + (int) (h % bucketsPerHash)];
 	    entry.count += plusOrMinus;
 	    entry.keySum ^= key;
-	    entry.keyCheck ^= HashTableEntry.murmurHash3(HashTableEntry.N_HASHCHECK, key);
+	    entry.keyCheck ^= Util.murmurHash3(HashTableEntry.N_HASHCHECK, (int) key);
 	  }
 	}
 	
 	public void
-	insert(int key)
+	insert(long key)
 	{
 	  update(INSERT, key);
 	}
 
 	public void
-	erase(int key)
+	erase(long key)
 	{
 	  update(ERASE, key);
 	}
 	
 	class ListResult {
-		public Set<Integer> positive, negative;
+		public Set<Long> positive, negative;
 		public boolean success;
 	}
 	
@@ -158,12 +167,37 @@ public class IBLT {
 		out = "count keySum keyCheckMatch\n";
 		  for (HashTableEntry entry : m_hashTable) {
 		    out += entry.count + " " + entry.keySum + " ";
-		    out += ((HashTableEntry.murmurHash3(HashTableEntry.N_HASHCHECK, entry.keySum) == entry.keyCheck) ||
+		    out += ((Util.murmurHash3(HashTableEntry.N_HASHCHECK, (int) entry.keySum) == entry.keyCheck) ||
 		           (entry.isEmpty())? "true" : "false");
 		    out += "\n";
 		  }
 		return out;
 	}
+	
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+ 
+        if (!(o instanceof IBLT)) {
+            return false;
+        }
+        
+        HashTableEntry [] otherHashTable = ((IBLT) o).getHashTable();
+        if (otherHashTable.length != m_hashTable.length) {
+        	return false;
+        }
+        
+        for (int i = 0; i < m_hashTable.length; i++) {
+        	if (otherHashTable[i].count != m_hashTable[i].count ||
+        		otherHashTable[i].keySum != m_hashTable[i].keySum ||
+        		otherHashTable[i].keyCheck != m_hashTable[i].keyCheck) {
+        		return false;
+        	}
+        }
+		return true;
+    }
 	
 	public Name
 	appendToName(Name name)
@@ -172,6 +206,8 @@ public class IBLT {
 	  int unitSize = (32 * 3) / 8; // hard coding
 	  int tableSize = unitSize * n;
 
+      // Even though Java does not have unsigned byte
+	  // name.append produces output == name.append uint8_t in C++
 	  byte [] table = new byte[tableSize];
 
 	  for (int i = 0; i < n; i++) {

@@ -1,8 +1,17 @@
 package ndn.psync.java_psync;
 
+import com.google.common.base.Charsets;
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
+
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
+import ndn.psync.java_psync.detail.HashTableEntry;
+import ndn.psync.java_psync.detail.IBLT;
+import ndn.psync.java_psync.detail.Util;
+import net.named_data.jndn.Name;
+import net.named_data.jndn.Name.Component;
 import net.named_data.jndn.psync.LogicConsumer;
 
 /**
@@ -37,7 +46,7 @@ public class AppTest
         assertTrue( true );
     }
     
-    public void testHello()
+    /*public void testHello()
     {
         // send a hello
         Name syncName = new Name("/sync/stuff");
@@ -59,5 +68,66 @@ public class AppTest
         LogicConsumer consumer = new LogicConsumer(syncName, face, 4, 0.001);
         consumer.sendHelloInterest();
         face.processEvents();
+    }*/
+    
+    public void testIBLT()
+    {
+    	IBLT iblt = new IBLT(10);
+    	// System.out.println(iblt.toString());
+
+    	Name userPrefix = new Name("/test/memphis");
+    	userPrefix.append(Component.fromNumber(1));
+
+    	long hash =  Util.murmurHash3(11, userPrefix.toUri());
+    	assertTrue(hash == 4138171066L);
+    	
+    	iblt.insert(hash);
+    	// System.out.println(iblt);
+    	
+    	// 15 = 10 + 10/2
+    	HashTableEntry hashTableExpected[] = new HashTableEntry[15];
+        for (int i = 0; i < hashTableExpected.length; i++) {
+        	hashTableExpected[i] = new HashTableEntry();
+        }
+
+        long expectedKeyCheck = Util.murmurHash3(HashTableEntry.N_HASHCHECK, (int) 4138171066L);
+        for (int i = 0; i < hashTableExpected.length; i += 6) {
+        	hashTableExpected[i].count = 1;
+        	hashTableExpected[i].keySum = 4138171066L;
+        	hashTableExpected[i].keyCheck = expectedKeyCheck;
+        }
+        
+        HashTableEntry [] currentTable = iblt.getHashTable();
+        for (int i = 0; i < hashTableExpected.length; i++) {
+        	assertTrue(hashTableExpected[i].count == currentTable[i].count);
+        	assertTrue(hashTableExpected[i].keySum == currentTable[i].keySum);
+        	assertTrue(hashTableExpected[i].keyCheck == currentTable[i].keyCheck);
+        }
+        
+        Name syncInterestName = new Name("/sync");
+        Name nameWithIblt = iblt.appendToName(syncInterestName);
+        
+        Name expectedName = new Name("/sync/%01%00%00%00%BAz%A7%F6cM%A3k%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%01%00%00%00%BAz%A7%F6cM%A3k%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%01%00%00%00%BAz%A7%F6cM%A3k%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00");
+        assertTrue(expectedName.equals(nameWithIblt));
+        
+        Component ibltName = new Component(expectedName.get(1).getValue());
+        System.out.println(expectedName.get(1).toEscapedString());
+        IBLT iblt2 = new IBLT(10);
+        try {
+			iblt2.initialize(ibltName);
+		} catch (Exception e) {
+			e.printStackTrace();
+			assertTrue(false);
+		}
+
+        assertTrue(iblt.equals(iblt2));
+    }
+    
+    public void testBloom()
+    {
+    	Name testSub = new Name("/test/memphis");
+    	BloomFilter<String> bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), 20, 0.001);
+    	bloomFilter.put(testSub.toUri());
+    	
     }
 }
