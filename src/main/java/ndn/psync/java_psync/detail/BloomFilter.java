@@ -122,10 +122,6 @@ public class BloomFilter {
 							            0x40,  //01000000
 							            0x80   //10000000
 							          };
-	
-	/*typedef uint32_t bloom_type;
-	  typedef uint8_t cell_type;
-	  typedef std::vector <cell_type>::iterator Iterator;*/
     
 	  long[] salt_;
 	  byte[]             bit_table_;

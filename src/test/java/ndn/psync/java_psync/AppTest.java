@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Base64;
 
 //import com.google.common.base.Charsets;
@@ -17,10 +19,14 @@ import junit.framework.TestSuite;
 import ndn.psync.java_psync.detail.BloomFilter;
 import ndn.psync.java_psync.detail.HashTableEntry;
 import ndn.psync.java_psync.detail.IBLT;
+import ndn.psync.java_psync.detail.State;
 import ndn.psync.java_psync.detail.Util;
+import net.named_data.jndn.Data;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.Name.Component;
+import net.named_data.jndn.encoding.EncodingException;
 import net.named_data.jndn.psync.LogicConsumer;
+import net.named_data.jndn.util.Blob;
 
 /**
  * Unit test for simple App.
@@ -160,5 +166,30 @@ public class AppTest
 			e.printStackTrace();
 		}
     	assertTrue(bloomFilter.equals(bfFromName));
+    }
+    
+    public void testState()
+    {
+    	State state = new State();
+    	Name prefix = new Name("test");
+    	state.addContent(prefix);
+    	byte [] expected = {(byte) -128, 8, 7, 6, 8, 4, 116, 101, 115, 116};
+    	assertTrue(Arrays.equals(expected, state.wireEncode().getImmutableArray()));
+
+    	Name prefix2 = new Name("test2");
+    	state.addContent(prefix2);
+    	
+    	State rcvdState = new State();
+    	Data data = new Data();
+    	data.setContent(state.wireEncode());
+    	try {
+			rcvdState.wireDecode(data.getContent().buf());
+		} catch (EncodingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	for (Name name : rcvdState.getContent()) {
+    		System.out.println(name);
+    	}
     }
 }
