@@ -27,11 +27,7 @@
 package ndn.psync.java_psync.detail;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Random;
-import java.util.Vector;
-
-import com.google.common.primitives.UnsignedBytes;
 
 import net.named_data.jndn.Name;
 import net.named_data.jndn.Name.Component;
@@ -335,12 +331,11 @@ public class BloomFilter {
 		return out;
 	}
 
-	public Name
+	public void
 	appendToName(Name prefix) {
 		prefix.append(Component.fromNumber(projected_element_count_));
 		prefix.append(Component.fromNumber((int)(desired_false_positive_probability_ * 1000)));
 		prefix.append(bit_table_);
-		return prefix;
 	}
 	
 	@Override

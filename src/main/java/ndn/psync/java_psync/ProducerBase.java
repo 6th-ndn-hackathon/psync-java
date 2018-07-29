@@ -20,18 +20,18 @@ import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.security.tpm.TpmBackEnd.Error;
 
 public abstract class ProducerBase {
-	private int m_expectedNumEntries;
+	protected int m_expectedNumEntries;
 	protected Face m_face;
 	@SuppressWarnings("unused")
 	private Name m_syncPrefix;
 	@SuppressWarnings("unused")
 	private double m_syncReplyFreshness, m_helloReplyFreshness;
-	private Map<Name, Long> m_prefixes;
-	private Map<Name, Long> m_prefix2hash = new HashMap<Name, Long>();
-	private Map<Long, Name> m_hash2prefix = new HashMap<Long, Name>();
+	protected Map<Name, Long> m_prefixes;
+	protected Map<Name, Long> m_prefix2hash = new HashMap<Name, Long>();
+	protected Map<Long, Name> m_hash2prefix = new HashMap<Long, Name>();
 	private KeyChain m_keyChain;
 
-	private IBLT m_iblt;
+	protected IBLT m_iblt;
 	
 	public
 	ProducerBase(int expectedNumEntries,
@@ -110,10 +110,10 @@ public abstract class ProducerBase {
 	}
 	
 	protected void
-	sendApplicationNack(Interest interest)
+	sendApplicationNack(Name name)
 	{
 		System.out.println("Sending application nack");
-		Name dataName = new Name(interest.getName());
+		Name dataName = new Name(name);
 		m_iblt.appendToName(dataName);
 		
 		Data data = new Data(dataName);

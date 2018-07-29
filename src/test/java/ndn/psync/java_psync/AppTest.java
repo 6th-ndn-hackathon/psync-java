@@ -142,7 +142,7 @@ public class AppTest
     	BloomFilter bloomFilter = new BloomFilter(100, 0.001);
     	bloomFilter.insert("/memphis");
     	Name syncPrefix = new Name("test");
-    	syncPrefix = bloomFilter.appendToName(syncPrefix);
+    	bloomFilter.appendToName(syncPrefix);
     	// System.out.println(syncPrefix);
 
     	Name expectedBloomFilter = new Name("/test/d/%01/%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%08%08%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%10%00%00%00%00%00%00%00%00%00%00%00%00%00%00%80%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%08%00%00%20%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%00%40%00%00%00%18%00%00%20%00%00%00"); 
@@ -155,7 +155,7 @@ public class AppTest
     	assertTrue(bloomFilter.contains("/ucla") == true);
 
     	Name newSyncPrefix = new Name("test");
-    	newSyncPrefix = bloomFilter.appendToName(newSyncPrefix);
+    	bloomFilter.appendToName(newSyncPrefix);
     	BloomFilter bfFromName = null;
 		try {
 			bfFromName = new BloomFilter(newSyncPrefix.get(1).toNumber(),

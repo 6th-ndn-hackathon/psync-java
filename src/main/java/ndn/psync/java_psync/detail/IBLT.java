@@ -127,7 +127,7 @@ public class IBLT {
 	  update(ERASE, key);
 	}
 	
-	class ListResult {
+	public class ListResult {
 		public Set<Long> positive, negative;
 		public boolean success;
 	}
@@ -170,11 +170,11 @@ public class IBLT {
 	}
 	
 	public IBLT
-	subtract(IBLT first, IBLT other)
+	subtract(IBLT other)
 	{
-	  assert first.m_hashTable.length == other.m_hashTable.length;
+	  assert m_hashTable.length == other.m_hashTable.length;
 
-	  IBLT result = first;
+	  IBLT result = this;
 	  for (int i = 0; i < m_hashTable.length; i++) {
 	    HashTableEntry e1 = result.m_hashTable[i];
 	    HashTableEntry e2 = other.m_hashTable[i];

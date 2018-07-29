@@ -3,6 +3,8 @@ package ndn.psync.java_psync.detail;
 import com.google.common.base.Charsets;
 import com.google.common.hash.Hashing;
 
+import net.named_data.jndn.Name;
+
 public class Util {
 	public static long murmurHash3(int seed, long key)
 	{
