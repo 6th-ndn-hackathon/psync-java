@@ -1,6 +1,11 @@
 package ndn.psync.java_psync;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import static java.util.concurrent.TimeUnit.*;
 
 import ndn.psync.java_psync.detail.BloomFilter;
 import ndn.psync.java_psync.detail.IBLT;
@@ -18,26 +23,35 @@ import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.security.tpm.TpmBackEnd.Error;
 import net.named_data.jndn.util.Blob;
-import net.named_data.jndn.util.MemoryContentCache;
-import net.named_data.jndn.util.MemoryContentCache.PendingInterest;
 
 public class PartialProducer extends ProducerBase {
-	private MemoryContentCache m_contentCacheForSyncData;
+	private class
+	PendingInterestInfo {
+		public IBLT iblt;
+		public BloomFilter bf;
+		public final ScheduledExecutorService expiryEvent = Executors.newScheduledThreadPool(1);;
+	}
+	private Map<Name, PendingInterestInfo> m_pendingEntries = new HashMap<Name, PendingInterestInfo>();
 
 	public PartialProducer(int expectedNumEntries, Face face, Name syncPrefix, Name userPrefix,
 			               double syncReplyFreshness, double helloReplyFreshness, KeyChain keyChain) {
 		super(expectedNumEntries, face, syncPrefix, userPrefix, syncReplyFreshness, helloReplyFreshness, keyChain);
 
 		try {
-			m_face.registerPrefix(new Name(syncPrefix).append("hello"),
-					              onHelloInterest, onRegisterFailed);
-			m_contentCacheForSyncData.registerPrefix(new Name(syncPrefix).append("sync"),
-					                                 onRegisterFailed,
-					                                 onSyncInterest);
+			m_face.registerPrefix(syncPrefix, onInterest, onRegisterFailed);
+			m_face.setInterestFilter(new InterestFilter(new Name(syncPrefix).append("hello")), onHelloInterest);
+			m_face.setInterestFilter(new InterestFilter(new Name(syncPrefix).append("sync")), onSyncInterest);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
+	
+	private final OnInterestCallback onInterest = new OnInterestCallback() {
+		public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
+				InterestFilter filter) {
+			System.out.print("Received interest: " + interest);
+		}
+	};
 
 	private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
 		public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
@@ -90,7 +104,7 @@ public class PartialProducer extends ProducerBase {
         public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
                                InterestFilter filterData) {
         	System.out.println("Sync Interest Received, nonce: " + interest.getNonce());
-        	Name interestName = interest.getName();
+        	final Name interestName = interest.getName();
 
         	Component bfName, ibltName;
         	long projectedCount;
@@ -133,7 +147,7 @@ public class PartialProducer extends ProducerBase {
 
         	// generate content for Sync reply
         	State state = new State();
-        	for (long hash : listResult.positive) {        		
+        	for (long hash : listResult.positive) {
        			Name hashPrefix = m_hash2prefix.get(hash);
       			if (bf.contains(hashPrefix.toUri())) {
       				state.addContent(new Name(hashPrefix).append(Component.fromNumber(m_prefixes.get(hashPrefix))));
@@ -176,7 +190,20 @@ public class PartialProducer extends ProducerBase {
 				}
                 return;
         	}
-        	m_contentCacheForSyncData.storePendingInterest(interest, face);
+        	
+        	PendingInterestInfo entry = new PendingInterestInfo();
+        	entry.iblt = iblt;
+        	entry.bf = bf;
+
+        	m_pendingEntries.putIfAbsent(interestName, entry);
+        	entry.expiryEvent.schedule(new Runnable() {
+        								   public void run() {
+        									   System.out.println("Deleting pending interesr");
+        									  m_pendingEntries.remove(interestName);
+        								   }
+        							   },
+        			                   (long) interest.getInterestLifetimeMilliseconds(),
+        							   MILLISECONDS);
         }
     };
     
@@ -203,36 +230,15 @@ public class PartialProducer extends ProducerBase {
 	
 	private void
 	satisfyPendingSyncInterests(Name prefix) {
-		for (PendingInterest interest: m_contentCacheForSyncData.getPendingInterestTable()) {
-			Name interestName = interest.getInterest().getName();
-        	
-        	long count = interestName.get(interestName.size()-4).toNumber();
-        	double falsePositiveProb = interestName.get(interestName.size()-3).toNumber()/1000.;
-        	Component bfName = interestName.get(interestName.size()-2);
+		for (Name interestName: m_pendingEntries.keySet()) {
+    		PendingInterestInfo entry = m_pendingEntries.get(interestName);
+    		BloomFilter bloomFilter = entry.bf;
+    		IBLT iblt = entry.iblt;
 
-    		Component ibltName = interestName.get(interestName.size()-1);
-
-    		BloomFilter bloomFilter = null;
-        	try {
-				bloomFilter = new BloomFilter(count, falsePositiveProb, bfName);
-			} catch (Exception e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-				continue;
-			}
-
-        	IBLT iblt = new IBLT(m_expectedNumEntries);
-        	try {
-				iblt.initialize(ibltName);
-			} catch (Exception e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
-        	
         	IBLT diff = m_iblt.subtract(iblt);
         	ListResult listResult = diff.listEntries();
         	if (!listResult.success) {
-        		//pendingInterestTable_.remove(interest);
+        		m_pendingEntries.remove(interestName);
         		continue;
         	}
         	
@@ -245,7 +251,7 @@ public class PartialProducer extends ProducerBase {
               else {
                 System.out.println("Sending with empty content to send latest IBF to consumer");
               }
-              
+
               Name syncDataName = interestName;
               m_iblt.appendToName(syncDataName);
               Data data = new Data();
@@ -279,6 +285,7 @@ public class PartialProducer extends ProducerBase {
             	  // TODO Auto-generated catch block
             	  e.printStackTrace();
               }
+              m_pendingEntries.remove(interestName);
             }
 		}
 	}

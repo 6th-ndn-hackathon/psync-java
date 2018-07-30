@@ -25,7 +25,7 @@ public abstract class ProducerBase {
 	@SuppressWarnings("unused")
 	private Name m_syncPrefix;
 	protected double m_syncReplyFreshness, m_helloReplyFreshness;
-	protected Map<Name, Long> m_prefixes;
+	protected Map<Name, Long> m_prefixes = new HashMap<Name, Long>();
 	protected Map<Name, Long> m_prefix2hash = new HashMap<Name, Long>();
 	protected Map<Long, Name> m_hash2prefix = new HashMap<Long, Name>();
 	protected KeyChain m_keyChain;
@@ -47,6 +47,7 @@ public abstract class ProducerBase {
 		m_syncPrefix = syncPrefix;
 		m_syncReplyFreshness = syncReplyFreshness;
 		m_helloReplyFreshness = helloReplyFreshness;
+		m_keyChain = keyChain;
 		
 		m_iblt = new IBLT(m_expectedNumEntries);
 		addUserNode(userPrefix);

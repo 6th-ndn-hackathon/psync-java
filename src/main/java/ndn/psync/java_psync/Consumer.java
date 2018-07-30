@@ -25,8 +25,8 @@ public class Consumer {
     private int m_count;
     private double m_false_positive;
     private Name m_ibltName;
-    private Map <Name, Long> m_prefixes;
-    private Set<Name> m_subscriptionList;
+    private Map <Name, Long> m_prefixes = new HashMap<Name, Long>();
+    private Set<Name> m_subscriptionList = new HashSet<Name>();
     BloomFilter m_bloomFilter;
     private long m_outstandingInterestId = 0;
 
@@ -55,8 +55,7 @@ public class Consumer {
     }
 
     public void sendHelloInterest() {
-        Name helloInterestName = m_syncPrefix;
-        helloInterestName.append("hello");
+        Name helloInterestName = new Name(m_syncPrefix).append("hello");
 
         Interest helloInterest = new Interest(helloInterestName);
         helloInterest.setInterestLifetimeMilliseconds(4000);
@@ -111,8 +110,7 @@ public class Consumer {
 
     public void sendSyncInterest() {
     	// Sync interest format for partial: /<sync-prefix>/sync/<BF>/<old-IBF>
-    	Name syncInterestName = m_syncPrefix;
-        syncInterestName.append("sync");
+    	Name syncInterestName = new Name(m_syncPrefix).append("sync");
         
         // Append subscription list
         m_bloomFilter.appendToName(syncInterestName);

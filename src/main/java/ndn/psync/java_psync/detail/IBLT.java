@@ -27,6 +27,7 @@
 package ndn.psync.java_psync.detail;
 
 import java.nio.ByteBuffer;
+import java.util.HashSet;
 import java.util.Set;
 
 import com.google.common.hash.Hashing;
@@ -137,6 +138,8 @@ public class IBLT {
 	{
 	  ListResult result = new ListResult();
 	  result.success = true;
+	  result.positive = new HashSet<Long>();
+	  result.negative = new HashSet<Long>();
 
 	  IBLT peeled = this;
 
