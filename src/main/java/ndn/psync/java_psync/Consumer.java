@@ -1,3 +1,4 @@
+package ndn.psync.java_psync;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
@@ -6,37 +7,35 @@ import net.named_data.jndn.NetworkNack;
 import net.named_data.jndn.OnData;
 import net.named_data.jndn.OnNetworkNack;
 import net.named_data.jndn.OnTimeout;
+import net.named_data.jndn.encoding.EncodingException;
+
+import java.io.IOException;
 import java.util.*;
 
-import com.google.common.base.Charsets;
-import com.google.common.hash.BloomFilter;
-import com.google.common.hash.Funnels;
+import ndn.psync.java_psync.detail.BloomFilter;
+import ndn.psync.java_psync.detail.MissingDataInfo;
+import ndn.psync.java_psync.detail.State;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-
-public class LogicConsumer {
+public class Consumer {
 
     private Name m_syncPrefix;
     private Face m_face;
     private ReceiveHelloCallback m_onReceivedHelloData;
     private ReceiveSyncCallback m_onReceivedSyncData;
-    // private UpdateCallback m_onUpdate;
     private int m_count;
     private double m_false_positive;
     private Name m_ibltName;
-    private Map <String, Integer> m_prefixes;
-    private boolean m_helloSent;
-    private Set<String> m_sl;
-    BloomFilter<String> m_bloomFilter;
-    private long m_outstandingInterestId;
-    public LogicConsumer(Name prefix,
-                         Face face,
-                         ReceiveHelloCallback onReceivedHelloData,
-                         ReceiveSyncCallback onReceivedSyncData,
-                         int count,
-                         double false_positive)
+    private Map <Name, Long> m_prefixes = new HashMap<Name, Long>();
+    private Set<Name> m_subscriptionList = new HashSet<Name>();
+    BloomFilter m_bloomFilter;
+    private long m_outstandingInterestId = 0;
+
+    public Consumer(Name prefix,
+                    Face face,
+                    ReceiveHelloCallback onReceivedHelloData,
+                    ReceiveSyncCallback onReceivedSyncData,
+                    int count,
+                    double false_positive)
     {
     	m_syncPrefix = prefix;
         m_face = face;
@@ -44,21 +43,19 @@ public class LogicConsumer {
         m_onReceivedSyncData = onReceivedSyncData;
         m_count = count;
         m_false_positive = false_positive;
-        m_helloSent = false;
-       m_bloomFilter = BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), m_count, m_false_positive);
+       m_bloomFilter = new BloomFilter(m_count, m_false_positive);
     }
 
     public interface ReceiveHelloCallback {
-        void onReceivedHelloData(String content);
+        void onReceivedHelloData(ArrayList<Name> content);
     }
-    
+
     public interface ReceiveSyncCallback {
-        void onReceivedSyncData(String content);
+        void onReceivedSyncData(ArrayList<MissingDataInfo> updates);
     }
 
     public void sendHelloInterest() {
-        Name helloInterestName = m_syncPrefix;
-        helloInterestName.append("hello");
+        Name helloInterestName = new Name(m_syncPrefix).append("hello");
 
         Interest helloInterest = new Interest(helloInterestName);
         helloInterest.setInterestLifetimeMilliseconds(4000);
@@ -85,13 +82,16 @@ public class LogicConsumer {
         public void onData(Interest interest, Data data) {
             Name helloDataName = data.getName();
 
-            m_ibltName = helloDataName.getSubName(helloDataName.size()-2, 2);
+            m_ibltName = helloDataName.getSubName(helloDataName.size()-1, 1);
 
-            String content = new String(data.getContent().getImmutableArray());
+            State state = new State();
+            try {
+				state.wireDecode(data.getContent().buf());
+			} catch (EncodingException e) {
+				e.printStackTrace();
+			}
 
-            m_helloSent = true;
-
-            m_onReceivedHelloData.onReceivedHelloData(content);
+            m_onReceivedHelloData.onReceivedHelloData(state.getContent());
         }
     };
 
@@ -101,7 +101,7 @@ public class LogicConsumer {
             sendHelloInterest();
         }
     };
-            
+
     private OnNetworkNack onHelloNack = new OnNetworkNack() {
 		public void onNetworkNack(Interest interest, NetworkNack networkNack) {
 			System.out.println("Nack");
@@ -110,11 +110,10 @@ public class LogicConsumer {
 
     public void sendSyncInterest() {
     	// Sync interest format for partial: /<sync-prefix>/sync/<BF>/<old-IBF>
-    	Name syncInterestName = m_syncPrefix;
-        syncInterestName.append("sync");
+    	Name syncInterestName = new Name(m_syncPrefix).append("sync");
         
         // Append subscription list
-        appendBF(syncInterestName);
+        m_bloomFilter.appendToName(syncInterestName);
         
         syncInterestName.append(m_ibltName);
         Interest syncInterest = new Interest(syncInterestName);
@@ -124,6 +123,10 @@ public class LogicConsumer {
         System.out.println("Send sync interest " + syncInterest);
 
         try {
+        	if (m_outstandingInterestId != 0) {
+        		m_face.removePendingInterest(m_outstandingInterestId);
+        	}
+
         	m_outstandingInterestId = m_face.expressInterest(syncInterest,
 				                                             onSyncDataCallback,
 				                                             onSyncTimeout,
@@ -133,54 +136,46 @@ public class LogicConsumer {
             e.printStackTrace();
         }
     }
-    
-    public void appendBF(Name prefix) {
-    	prefix.append(Integer.toString(m_count));
-    	prefix.append(Integer.toString((int) m_false_positive*1000));
 
-    	ByteArrayOutputStream out = null;
-    	try {
-			m_bloomFilter.writeTo(out);
-			prefix.append(out.toByteArray());
-			prefix.append(Integer.toString(out.size()));
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+    public Set<Name> getSL(){
+        return m_subscriptionList;
     }
 
-    boolean haveSentHello(){
-        return m_helloSent;
-    }
-
-    public Set<String> getSL(){
-        return m_sl;
-    }
-
-    public void addSL(String s) {
-        m_prefixes.put(s, 0);
-        m_sl.add(s);
-        m_bloomFilter.put(s);
+    public void addSL(Name s) {
+        m_prefixes.put(s, (long) 0);
+        m_subscriptionList.add(s);
+        m_bloomFilter.insert(s.toUri());
     }
     
     private OnData onSyncDataCallback = new OnData() {
         public void onData(Interest interest, Data data) {
         	Name syncDataName = data.getName();
-        	m_ibltName = syncDataName.getSubName(syncDataName.size()-2, 2);
-        	
-        	String newContent;
-        	String content = new String(data.getContent().getImmutableArray());
-        	String[] csplit = content.split("\n");
-        	
-        	for (String t : csplit) {
-        		
-        		for (String key : m_prefixes.keySet()){
-                    if (t.split("/")[0] == key && Integer.parseInt(t.split("/")[1]) > m_prefixes.get(key)) {
-                    	newContent += t.split("/")[0] + "/" + t.split("/")[1] + "\n";
-                    }
-                }
+        	m_ibltName = syncDataName.getSubName(syncDataName.size()-1, 1);
+
+        	State state = new State();
+        	try {
+				state.wireDecode(data.getContent().buf());
+			} catch (EncodingException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+        	ArrayList<MissingDataInfo> updates = new ArrayList<MissingDataInfo>();
+        	MissingDataInfo update = new MissingDataInfo();
+        	for (Name content : state.getContent()) {
+        		Name prefix = content.getPrefix(-1);
+        		long seq = content.get(content.size()-1).toNumber();
+        		if (!m_prefixes.containsKey(prefix) || seq > m_prefixes.get(prefix)) {
+          	        // If this is just the next seq number then we had already informed the consumer about
+        	        // the previous sequence number and hence seq low and seq high should be equal to current seq
+        	    	update.prefix = prefix;
+        	    	update.lowSeq = m_prefixes.get(prefix) + 1;
+        	    	update.highSeq = seq;
+        	        updates.add(update);
+        	    }
         	}
-        	m_onReceivedSyncData.onReceivedSyncData(newContent);
+        	
+        	m_onReceivedSyncData.onReceivedSyncData(updates);
         	sendSyncInterest();
         }
     };
@@ -198,4 +193,3 @@ public class LogicConsumer {
 		}
     };
 }
-

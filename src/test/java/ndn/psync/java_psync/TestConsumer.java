@@ -2,21 +2,18 @@ package ndn.psync.java_psync;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 
+import ndn.psync.java_psync.Consumer.ReceiveHelloCallback;
 import net.named_data.jndn.Face;
-import net.named_data.jndn.Interest;
-import net.named_data.jndn.InterestFilter;
 import net.named_data.jndn.Name;
-import net.named_data.jndn.Name.Component;
-import net.named_data.jndn.OnInterestCallback;
-import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
-import net.named_data.jndn.security.KeyChain.Error;
 import net.named_data.jndn.security.SafeBag;
-import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.util.Blob;
 
-public class TestLogic {
+public class TestConsumer {
+	  static Consumer consumer = null;
+
 	  private static ByteBuffer
 	  toBuffer(int[] array)
 	  {
@@ -132,12 +129,6 @@ public class TestLogic {
 			});
 
 	public static void main(String[] args) {
-	    final OnRegisterFailed onRegisterFailed = new OnRegisterFailed() {
-			public void onRegisterFailed(Name arg0) {
-				System.out.println("Register failed for: " + arg0);
-			}
-		 };
-
 		Face face = new Face();
 
 		KeyChain keyChain = null;
@@ -147,48 +138,18 @@ public class TestLogic {
 	                   new Blob(DEFAULT_RSA_PRIVATE_KEY_DER, false),
 	                   new Blob(DEFAULT_RSA_PUBLIC_KEY_DER, false)));
 
-            face.setCommandSigningInfo(keyChain, keyChain.getDefaultCertificateName());
+          face.setCommandSigningInfo(keyChain, keyChain.getDefaultCertificateName());
 		} catch (Exception e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
 
-		final Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
-		logic.addUserPrefix("/testData1010");
-		logic.addUserPrefix("/testData2020");
-		logic.addUserPrefix("/testData3030");
-		logic.addUserPrefix("/testData4040");
-		logic.addUserPrefix("/testData5050");
-		
-		final OnInterestCallback onHelloInterest = new OnInterestCallback() {
-	        public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
-	                               InterestFilter filterData) {
-	        	System.out.println("Received interest: " + interest.getName());
-	        	// /localhost/psync/publish/testData1010/<content>
-	        	// /localhost/psync/publish/<userPrefix>/<content>
-	        	Name interestName = interest.getName();
-	        	Name secondLast = new Name("").append(interestName.get(interestName.size()-4));
-	        	Name last = new Name("").append(interestName.get(interestName.size()-3));
-	        	
-	        	System.out.println(secondLast);
-	        	System.out.println(last);
-	        	
-	        	Blob blob = new Blob(last.toUri().getBytes());
-	        	logic.publishData(blob, 1000, secondLast.toString());
-	        }
-	    };
-		
-		try {
-			face.registerPrefix(new Name("/localhost/psync/publish"),
-					            onHelloInterest, onRegisterFailed);
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
+		consumer = new Consumer(new Name("/testSync"), face, onHelloData, null, 40, 0.001);
+		consumer.sendHelloInterest();
 		
 		while (true) {
 	        try {
 				face.processEvents();
-
 		        // We need to sleep for a few milliseconds so we don't use 100% of
 		        //   the CPU.
 		        Thread.sleep(5);
@@ -201,4 +162,14 @@ public class TestLogic {
 			}
 	    }
 	}
+	
+	private final static ReceiveHelloCallback onHelloData = new ReceiveHelloCallback() {
+		public void onReceivedHelloData(ArrayList<Name> content) {
+			for (Name prefix : content) {
+				System.out.println(prefix);
+			}
+			consumer.addSL(content.get(0));
+			consumer.sendSyncInterest();
+		}
+	};
 }

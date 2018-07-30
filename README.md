@@ -1,5 +1,4 @@
-# psync-java
-Java Port of PSync
+# Java Port of PSync
 
 ## Dependencies
 
@@ -7,30 +6,23 @@ Java Port of PSync
 
     https://github.com/named-data/jndn
 
-Modified MemoryContentCache.java to expose pendingInterestTable to application.
-When we publish data in PSync we need to go over the pending interests and see
-if their subscription list (which is a part of the interest) matches the produced
-data before sending the data.
+To be compatible with the C++ library, IBF and Bloom Filter
+written in C++ were ported to Java:
 
 ### IBF:
 
-    https://github.com/kallerosenbaum/ibltj
-
-Install the ibltj as:
-
-    mvn package
-    mvn install:install-file -Dfile=target/iblt-1.0-SNAPSHOT.jar -DgroupId=se.rosenbaum -DartifactId=iblt -Dversion=1.0-SNAPSHOT -Dpackaging=jar
+Java port of:
+    https://github.com/gavinandresen/IBLT_Cplusplus
 
 ### Bloom Filter
 
-    Guava library
-
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
-      <version>22.0</version>
-    </dependency>
+Java port of:
+    https://github.com/ArashPartow/bloom
 
 ## IDE
 
 Use eclipse and export as Maven project (May need to install Maven plugin)
+
+## Bug Reports/Issues:
+
+    https://redmine.named-data.net/projects/psync

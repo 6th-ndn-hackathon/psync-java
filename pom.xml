@@ -22,14 +22,9 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-    	<groupId>se.rosenbaum</groupId>
-    	<artifactId>iblt</artifactId>
-    	<version>1.0-SNAPSHOT</version>
-    </dependency>
-    <dependency>
     	<groupId>net.named-data</groupId>
     	<artifactId>jndn</artifactId>
-    	<version>0.17</version>
+    	<version>0.18</version>
     </dependency>
     <dependency>
     	<groupId>com.google.guava</groupId>
