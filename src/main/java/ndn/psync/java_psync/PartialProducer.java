@@ -1,5 +1,7 @@
 package ndn.psync.java_psync;
 
+import java.io.IOException;
+
 import ndn.psync.java_psync.detail.BloomFilter;
 import ndn.psync.java_psync.detail.IBLT;
 import ndn.psync.java_psync.detail.IBLT.ListResult;
@@ -13,8 +15,11 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.Name.Component;
 import net.named_data.jndn.OnInterestCallback;
 import net.named_data.jndn.security.KeyChain;
+import net.named_data.jndn.security.SecurityException;
+import net.named_data.jndn.security.tpm.TpmBackEnd.Error;
 import net.named_data.jndn.util.Blob;
 import net.named_data.jndn.util.MemoryContentCache;
+import net.named_data.jndn.util.MemoryContentCache.PendingInterest;
 
 public class PartialProducer extends ProducerBase {
 	private MemoryContentCache m_contentCacheForSyncData;
@@ -34,7 +39,54 @@ public class PartialProducer extends ProducerBase {
 		}
 	}
 
-    private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
+	private final OnInterestCallback onHelloInterest = new OnInterestCallback() {
+		public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
+							   InterestFilter filterData) {
+			  System.out.println("Hello Interest Received, nonce: " + interest.getNonce());
+
+			  State state = new State();
+
+			  for (Name content : m_prefixes.keySet()) {
+				  state.addContent(content);
+			  }
+			  System.out.println("sending content p: " + state);
+
+			  Name helloDataName = prefix;
+			  m_iblt.appendToName(helloDataName);
+
+			  Data data = new Data();
+			  data.setName(helloDataName);
+			  MetaInfo metaInfo = new MetaInfo();
+              metaInfo.setFreshnessPeriod(m_helloReplyFreshness);
+              data.setMetaInfo(metaInfo);
+			  data.setContent(state.wireEncode());
+
+			  try {
+				  m_keyChain.sign(data);
+			  } catch (SecurityException e) {
+				  // TODO Auto-generated catch block
+				  e.printStackTrace();
+			  } catch (Error e) {
+				  // TODO Auto-generated catch block
+				  e.printStackTrace();
+			  } catch (net.named_data.jndn.security.pib.PibImpl.Error e) {
+				  // TODO Auto-generated catch block
+				  e.printStackTrace();
+			  } catch (net.named_data.jndn.security.KeyChain.Error e) {
+				  // TODO Auto-generated catch block
+				  e.printStackTrace();
+			  }
+
+			  try {
+				  m_face.putData(data);
+			  } catch (IOException e) {
+				  // TODO Auto-generated catch block
+				  e.printStackTrace();
+			  }
+		}
+	};
+
+    private final OnInterestCallback onSyncInterest = new OnInterestCallback() {
         public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
                                InterestFilter filterData) {
         	System.out.println("Sync Interest Received, nonce: " + interest.getNonce());
@@ -87,56 +139,147 @@ public class PartialProducer extends ProducerBase {
       				state.addContent(new Name(hashPrefix).append(Component.fromNumber(m_prefixes.get(hashPrefix))));
         		}
         	}
+        	
+        	if (listResult.positive.size() + listResult.negative.size() >= m_threshold ||
+        		!state.getContent().isEmpty()) {
+
+                // send back data
+                Name syncDataName = interestName;
+                m_iblt.appendToName(syncDataName);
+                Data data = new Data();
+                data.setName(syncDataName);
+                MetaInfo metaInfo = new MetaInfo();
+                metaInfo.setFreshnessPeriod(m_syncReplyFreshness);
+                data.setMetaInfo(metaInfo);
+                data.setContent(state.wireEncode());
+                try {
+					m_keyChain.sign(data);
+				} catch (SecurityException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (Error e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (net.named_data.jndn.security.pib.PibImpl.Error e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (net.named_data.jndn.security.KeyChain.Error e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+                System.out.println("Sending sync data");
+                try {
+					m_face.putData(data);
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+                return;
+        	}
+        	m_contentCacheForSyncData.storePendingInterest(interest, face);
         }
     };
+    
+	public void
+	publishName(Blob content, double freshness, Name prefix, Long seq) {
+		if (!m_prefixes.containsKey(prefix)) {
+			return;
+		}
 
-      /*
-
-      NDN_LOG_TRACE("m_threshold: " << m_threshold << " Total: " << positive.size() + negative.size());
-
-      if (positive.size() + negative.size() >= m_threshold || !state.getContent().empty()) {
-
-        // send back data
-        ndn::Name syncDataName = interestName;
-        m_iblt.appendToName(syncDataName);
-        ndn::Data data;
-        data.setName(syncDataName);
-        data.setFreshnessPeriod(m_syncReplyFreshness);
-        data.setContent(state.wireEncode());
-
-        m_keyChain.sign(data);
-        NDN_LOG_DEBUG("Sending sync data");
-        m_face.put(data);
-
-        return;
-      }
-
-      ndn::util::scheduler::ScopedEventId scopedEventId(m_scheduler);
-      auto it = m_pendingEntries.emplace(interestName,
-                                         PendingEntryInfo{bf, iblt, std::move(scopedEventId)});
-
-      it.first->second.expirationEvent =
-        m_scheduler.scheduleEvent(interest.getInterestLifetime(),
-                                  [this, interest] {
-                                    NDN_LOG_TRACE("Erase Pending Interest " << interest.getNonce());
-                                    m_pendingEntries.erase(interest.getName());
-                                  });
-    }
-       }
-	 };
-	 
-	 private final OnInterestCallback onSyncInterest = new OnInterestCallback() {
-		 public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
-                                InterestFilter filterData) {
-        	
-		 }
-	 };*/
+		long newSeq;
+		if (seq != null) {
+			newSeq = seq;
+		} else {
+			newSeq = m_prefixes.get(prefix) + 1;
+		}
+		
+		Name dataName = new Name(prefix);
+		dataName.append(Component.fromNumber(newSeq));
         
-        
-        private final OnInterestCallback onSyncInterest = new OnInterestCallback() {
-        	public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
-        						   InterestFilter filterData) {
+		updateSeqNo(prefix, newSeq);
+		
+		satisfyPendingSyncInterests(prefix);
+	}
+	
+	private void
+	satisfyPendingSyncInterests(Name prefix) {
+		for (PendingInterest interest: m_contentCacheForSyncData.getPendingInterestTable()) {
+			Name interestName = interest.getInterest().getName();
         	
+        	long count = interestName.get(interestName.size()-4).toNumber();
+        	double falsePositiveProb = interestName.get(interestName.size()-3).toNumber()/1000.;
+        	Component bfName = interestName.get(interestName.size()-2);
+
+    		Component ibltName = interestName.get(interestName.size()-1);
+
+    		BloomFilter bloomFilter = null;
+        	try {
+				bloomFilter = new BloomFilter(count, falsePositiveProb, bfName);
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+				continue;
+			}
+
+        	IBLT iblt = new IBLT(m_expectedNumEntries);
+        	try {
+				iblt.initialize(ibltName);
+			} catch (Exception e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+        	
+        	IBLT diff = m_iblt.subtract(iblt);
+        	ListResult listResult = diff.listEntries();
+        	if (!listResult.success) {
+        		//pendingInterestTable_.remove(interest);
+        		continue;
         	}
-        };
+        	
+        	State state = new State();
+            if (bloomFilter.contains(prefix.toUri()) ||
+            	listResult.positive.size() + listResult.negative.size() >= m_threshold) {
+              if (bloomFilter.contains(prefix.toUri())) {
+                 state.addContent(new Name(prefix).append(Component.fromNumber(m_prefixes.get(prefix))));
+              }
+              else {
+                System.out.println("Sending with empty content to send latest IBF to consumer");
+              }
+              
+              Name syncDataName = interestName;
+              m_iblt.appendToName(syncDataName);
+              Data data = new Data();
+              data.setName(syncDataName);
+              MetaInfo metaInfo = new MetaInfo();
+              metaInfo.setFreshnessPeriod(m_syncReplyFreshness);
+              data.setMetaInfo(metaInfo);
+              data.setContent(state.wireEncode());
+
+              try {
+            	  m_keyChain.sign(data);
+              } catch (SecurityException e) {
+            	  // TODO Auto-generated catch block
+            	  e.printStackTrace();
+              } catch (Error e) {
+            	  // TODO Auto-generated catch block
+            	  e.printStackTrace();
+              } catch (net.named_data.jndn.security.pib.PibImpl.Error e) {
+            	  // TODO Auto-generated catch block
+            	  e.printStackTrace();
+              } catch (net.named_data.jndn.security.KeyChain.Error e) {
+            	  // TODO Auto-generated catch block
+            	  e.printStackTrace();
+              }
+
+              System.out.println("Sending sync data");
+
+              try {
+            	  m_face.putData(data);
+              } catch (IOException e) {
+            	  // TODO Auto-generated catch block
+            	  e.printStackTrace();
+              }
+            }
+		}
+	}
 }

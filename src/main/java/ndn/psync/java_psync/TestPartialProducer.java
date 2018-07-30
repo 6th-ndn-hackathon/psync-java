@@ -7,16 +7,13 @@ import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.InterestFilter;
 import net.named_data.jndn.Name;
-import net.named_data.jndn.Name.Component;
 import net.named_data.jndn.OnInterestCallback;
 import net.named_data.jndn.OnRegisterFailed;
 import net.named_data.jndn.security.KeyChain;
-import net.named_data.jndn.security.KeyChain.Error;
 import net.named_data.jndn.security.SafeBag;
-import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.util.Blob;
 
-public class TestLogic {
+public class TestPartialProducer {
 	  private static ByteBuffer
 	  toBuffer(int[] array)
 	  {
@@ -153,12 +150,12 @@ public class TestLogic {
 			e1.printStackTrace();
 		}
 
-		final Logic logic = new Logic(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
-		logic.addUserPrefix("/testData1010");
-		logic.addUserPrefix("/testData2020");
-		logic.addUserPrefix("/testData3030");
-		logic.addUserPrefix("/testData4040");
-		logic.addUserPrefix("/testData5050");
+		final PartialProducer producer = new PartialProducer(80, face, new Name("/testSync"), new Name("/testData000"), 1000, 1000, keyChain);
+		producer.addUserNode(new Name("/testData1010"));
+		producer.addUserNode(new Name("/testData2020"));
+		producer.addUserNode(new Name("/testData3030"));
+		producer.addUserNode(new Name("/testData4040"));
+		producer.addUserNode(new Name("/testData5050"));
 		
 		final OnInterestCallback onHelloInterest = new OnInterestCallback() {
 	        public void onInterest(Name prefix, Interest interest, Face face, long interestFilterId,
@@ -174,7 +171,7 @@ public class TestLogic {
 	        	System.out.println(last);
 	        	
 	        	Blob blob = new Blob(last.toUri().getBytes());
-	        	logic.publishData(blob, 1000, secondLast.toString());
+	        	producer.publishName(blob, 1000, secondLast, null);
 	        }
 	    };
 		
@@ -188,7 +185,6 @@ public class TestLogic {
 		while (true) {
 	        try {
 				face.processEvents();
-
 		        // We need to sleep for a few milliseconds so we don't use 100% of
 		        //   the CPU.
 		        Thread.sleep(5);

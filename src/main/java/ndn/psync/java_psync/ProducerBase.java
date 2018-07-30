@@ -10,7 +10,6 @@ import ndn.psync.java_psync.detail.Util;
 import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
-import net.named_data.jndn.Interest;
 import net.named_data.jndn.MetaInfo;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.Name.Component;
@@ -22,14 +21,14 @@ import net.named_data.jndn.security.tpm.TpmBackEnd.Error;
 public abstract class ProducerBase {
 	protected int m_expectedNumEntries;
 	protected Face m_face;
+	protected long m_threshold;
 	@SuppressWarnings("unused")
 	private Name m_syncPrefix;
-	@SuppressWarnings("unused")
-	private double m_syncReplyFreshness, m_helloReplyFreshness;
+	protected double m_syncReplyFreshness, m_helloReplyFreshness;
 	protected Map<Name, Long> m_prefixes;
 	protected Map<Name, Long> m_prefix2hash = new HashMap<Name, Long>();
 	protected Map<Long, Name> m_hash2prefix = new HashMap<Long, Name>();
-	private KeyChain m_keyChain;
+	protected KeyChain m_keyChain;
 
 	protected IBLT m_iblt;
 	
@@ -43,6 +42,7 @@ public abstract class ProducerBase {
 	             KeyChain keyChain)
 	{
 		m_expectedNumEntries = expectedNumEntries;
+		m_threshold = m_expectedNumEntries / 2;
 		m_face = face;
 		m_syncPrefix = syncPrefix;
 		m_syncReplyFreshness = syncReplyFreshness;

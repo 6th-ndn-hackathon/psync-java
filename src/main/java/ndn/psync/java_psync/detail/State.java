@@ -54,4 +54,14 @@ public class State {
 
 		 decoder.finishNestedTlvs(endOffset);
 	}
+	
+	public String
+	toString() {
+		String os = "[";
+		for (Name prefix : m_content) {
+			os += prefix + ", ";
+		}
+		os += "]";
+		return os;
+	}
 }
